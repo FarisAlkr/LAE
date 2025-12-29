@@ -57,6 +57,13 @@ public class TiredThread extends Thread implements Comparable<TiredThread> {
      */
     public void newTask(Runnable task) {
        // TODO
+       if (!alive.get()) {
+          throw new IllegalStateException("Worker is shut down");
+      }
+      boolean added = handoff.offer(task); 
+      if (!added) {
+          throw new IllegalStateException("Worker is busy");
+      }
     }
 
     /**
@@ -65,16 +72,67 @@ public class TiredThread extends Thread implements Comparable<TiredThread> {
      */
     public void shutdown() {
        // TODO
+       alive.set(false);
+
+       try {
+          handoff.put(POISON_PILL);
+       } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+       }        
     }
 
     @Override
     public void run() {
        // TODO
+            while (alive.get()) {
+          try {
+              // Wait for a new task
+              Runnable task = handoff.take();
+              if (task == POISON_PILL) {
+                  break;
+              }
+
+              // Update idle time
+              long idleEndTime = System.nanoTime();
+              long idleDuration = idleEndTime - idleStartTime.get();
+              timeIdle.addAndGet(idleDuration);
+
+              // Mark as busy
+              busy.set(true);
+
+              // Execute the task and measure time used
+              long startTime = System.nanoTime();
+              task.run();
+              long endTime = System.nanoTime();
+              long usedDuration = endTime - startTime;
+              timeUsed.addAndGet(usedDuration);
+
+              // Mark as idle
+              busy.set(false);
+              idleStartTime.set(System.nanoTime());
+
+          } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+              break;
+          }
+      }
     }
 
     @Override
     public int compareTo(TiredThread o) {
         // TODO
-        return 0;
+
+
+
+      double myFatigue = this.getFatigue();
+      double otherFatigue = o.getFatigue();
+
+      if (myFatigue < otherFatigue) {
+          return -1;
+      } else if (myFatigue > otherFatigue) {
+          return 1;
+      } else {
+          return 0;
+      }
     }
 }
